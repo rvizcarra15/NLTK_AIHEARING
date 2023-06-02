@@ -1,0 +1,403 @@
+import docx
+import pandas as pd
+
+# 01-Read the Word document
+# remember to install  pip install python-docx
+
+doc = docx.Document('D:\your Microsoft File.docx')
+
+# 02-Initialize empty lists for the columns
+items = []
+names = []
+comments = []
+
+# 03-Iterate over paragraphs in the document
+for paragraph in doc.paragraphs:
+    text = paragraph.text.strip()
+
+    if text.endswith(':'):
+        name = text[:-1]  
+    else:
+        items.append(len(items))
+        names.append(name)
+        comments.append(text)
+
+# 04-Create the dataframe
+dfsenate = pd.DataFrame({'item': items, 'name': names, 'comment': comments})
+
+# 05-Remove rows with empty or whitespace-only comments
+dfsenate = dfsenate[dfsenate['comment'].str.strip().astype(bool)]
+
+# 06-Reset the index
+dfsenate.reset_index(drop=True, inplace=True)
+dfsenate['item'] = dfsenate.index + 1
+
+print(dfsenate)
+
+
+
+#************************** GROUP BY SECTOR*****************************
+# Assign sectors based on names
+def assign_sector(name):
+    if name in ['Sam Altman', 'Christina Montgomery']:
+        return 'Private'
+    elif name == 'Gary Marcus':
+        return 'Academia'
+    else:
+        return 'Congress'
+
+dfsenate['sector'] = dfsenate['name'].apply(assign_sector)
+
+
+# Assign organizations based on names
+def assign_organization(name):
+    if name == 'Sam Altman':
+        return 'OpenAI'
+    elif name == 'Christina Montgomery':
+        return 'IBM'
+    elif name == 'Gary Marcus':
+        return 'Academia'
+    else:
+        return 'Congress'
+
+dfsenate['Organization'] = dfsenate['name'].apply(assign_organization)
+
+# Print the updated DataFrame
+print(dfsenate)
+
+#****************************WORD COUNT************************************
+dfsenate['WordCount'] = dfsenate['comment'].apply(lambda x: len(x.split()))
+print(dfsenate)
+
+#************************VISUALIZE THE DATE*************************
+
+# Group the dataframe by name and count the rows
+Summary_Name = dfsenate.groupby('name').agg(comment_count=('comment', 'size')).reset_index()
+
+# Calculate the sum of the WordCount column for each name
+Summary_Name ['Total_Words'] = dfsenate.groupby('name')['WordCount'].sum().values
+
+# Calculate the percentage 
+Summary_Name ['comment_count_%'] = Summary_Name['comment_count'] / Summary_Name['comment_count'].sum() * 100
+Summary_Name ['Word_count_%'] = Summary_Name['Total_Words'] / Summary_Name['Total_Words'].sum() * 100
+Summary_Name  = Summary_Name.sort_values('Total_Words', ascending=False)
+
+print (Summary_Name)
+
+
+
+#*****************************PIE CHARTS************************************
+import pandas as pd
+import matplotlib.pyplot as plt
+
+
+# Pie chart - Grouping by 'Organization' Questions&Testimonies
+org_colors = {'Congress': '#6BB6FF', 'OpenAI': 'green', 'IBM': 'lightblue', 'Academia': 'lightyellow'}
+org_counts = dfsenate['Organization'].value_counts()
+
+plt.figure(figsize=(8, 6))
+patches, text, autotext = plt.pie(org_counts.values, labels=org_counts.index, 
+                                  autopct=lambda p: f'{p:.1f}%\n({int(p * sum(org_counts.values) / 100)})', 
+                                  startangle=90, colors=[org_colors.get(org, 'gray') for org in org_counts.index])
+plt.title('Hearing on Oversight of AI: Questions or Testimonies')
+plt.axis('equal')
+plt.setp(text, fontsize=12)
+plt.setp(autotext, fontsize=12)
+plt.show()
+
+# Pie chart - Grouping by 'Organization' (WordCount)
+org_colors = {'Congress': '#6BB6FF', 'OpenAI': 'green', 'IBM': 'lightblue', 'Academia': 'lightyellow'}
+org_wordcount = dfsenate.groupby('Organization')['WordCount'].sum()
+
+plt.figure(figsize=(8, 6))
+patches, text, autotext = plt.pie(org_wordcount.values, labels=org_wordcount.index, 
+                                  autopct=lambda p: f'{p:.1f}%\n({int(p * sum(org_wordcount.values) / 100)})', 
+                                  startangle=90, colors=[org_colors.get(org, 'gray') for org in org_wordcount.index])
+
+
+plt.title('Hearing on Oversight of AI: WordCount ')
+plt.axis('equal')
+plt.setp(text, fontsize=12)
+plt.setp(autotext, fontsize=12)
+plt.show()
+
+#***************************WORDF-RECUENCY*******************************
+
+import subprocess
+import nltk
+import spacy
+from nltk.probability import FreqDist
+from nltk.corpus import stopwords
+
+# Download necessary resources
+subprocess.run('python -m spacy download en', shell=True)
+nltk.download('punkt')
+
+# Load spaCy model and set stopwords
+nlp = spacy.load('en_core_web_sm')
+stop_words = set(stopwords.words('english'))
+
+def preprocess_text(text):
+    words = nltk.word_tokenize(text)
+    words = [word.lower() for word in words if word.isalpha()]
+    words = [word for word in words if word not in stop_words]
+    lemmas = [token.lemma_ for token in nlp(" ".join(words))]
+    return lemmas
+
+# Aggregate words and create FreqDist object for all comments
+all_comments = ' '.join(dfsenate['comment'])
+processed_comments = preprocess_text(all_comments)
+fdist = FreqDist(processed_comments)
+# Save the original FreqDist
+original_fdist = fdist.copy()
+
+aggregate_words = ['regulation', 'regulate','agency', 'regulatory','legislation']
+aggregate_freq = sum(fdist[word] for word in aggregate_words)
+
+# Create a DataFrame from aggregate_words-regulation and their frequencies
+df_aggregatereg = pd.DataFrame({'Word': aggregate_words, 'Frequency': [fdist[word] for word in aggregate_words]})
+
+# Remove individual words from FreqDist
+for word in aggregate_words:
+    del fdist[word]
+
+# Add the aggregated word 'regulation' with its frequency
+fdist['regulation+agency'] = aggregate_freq
+
+# Pie chart for Regulation+agency
+import matplotlib.pyplot as plt
+
+labels = df_aggregatereg['Word']
+values = df_aggregatereg['Frequency']
+
+plt.figure(figsize=(8, 6))
+plt.subplots_adjust(top=0.8, bottom=0.25)  
+
+patches, text, autotext = plt.pie(values, labels=labels, 
+                                  autopct=lambda p: f'{p:.1f}%\n({int(p * sum(values) / 100)})', 
+                                  startangle=90, colors=['#6BB6FF', 'green', 'lightblue', 'lightyellow', 'gray'])
+
+plt.title('Regulation+agency: Distribution', fontsize=14)
+plt.axis('equal')
+plt.setp(text, fontsize=8)  
+plt.setp(autotext, fontsize=8)  
+plt.show()
+
+#**********************HEARING TOP 30 COMMON WORDS*********************
+# most common words and their frequencies
+top_words = fdist.most_common(30)
+words = [word for word, freq in top_words]
+frequencies = [freq for word, freq in top_words]
+
+# Horizontal bar plot-Hearing on Oversight of AI:Top 30 Most Common Words
+fig, ax = plt.subplots(figsize=(8, 10))
+ax.barh(range(len(words)), frequencies, align='center', color='skyblue')
+
+ax.invert_yaxis()
+ax.set_xlabel('Frequency', fontsize=12)
+ax.set_ylabel('Words', fontsize=12)
+ax.set_title('Hearing on Oversight of AI:Top 30 Most Common Words', fontsize=14)
+ax.set_yticks(range(len(words)))
+ax.set_yticklabels(words, fontsize=10)
+
+ax.spines['right'].set_visible(False)
+ax.spines['top'].set_visible(False)
+ax.spines['left'].set_linewidth(0.5)
+ax.spines['bottom'].set_linewidth(0.5)
+ax.tick_params(axis='x', labelsize=10)
+plt.subplots_adjust(left=0.3)
+
+for i, freq in enumerate(frequencies):
+    ax.text(freq + 5, i, str(freq), va='center', fontsize=8)
+
+plt.show()
+
+#****************************WORDCLOUDS*********************************
+from wordcloud import WordCloud
+
+# Create word cloud - All the session
+wordcloud = WordCloud(width=800, height=400, background_color='white').generate_from_frequencies(fdist)
+plt.figure(figsize=(10, 5))
+plt.imshow(wordcloud, interpolation='bilinear')
+plt.axis('off')
+plt.title('Word Cloud - Senate Hearing on Oversight of AI')
+plt.show()
+
+# Create word clouds for each group of Interest
+organizations = dfsenate['Organization'].unique()
+for organization in organizations:
+    comments = dfsenate[dfsenate['Organization'] == organization]['comment']
+    all_comments = ' '.join(comments)
+    processed_comments = preprocess_text(all_comments)
+    fdist_organization = FreqDist(processed_comments)
+
+    # Word cloud for the organization
+    wordcloud = WordCloud(width=800, height=400, background_color='white').generate_from_frequencies(fdist_organization)
+    plt.figure(figsize=(10, 5))
+    plt.imshow(wordcloud, interpolation='bilinear')
+    plt.axis('off')
+    if organization == 'IBM':
+        plt.title(f'Word Cloud: {organization} - Christina Montgomery')
+    elif organization == 'OpenAI':
+        plt.title(f'Word Cloud: {organization} - Sam Altman')
+    elif organization == 'Academia':
+        plt.title(f'Word Cloud: {organization} - Gary Marcus')
+    else:
+        plt.title(f'Word Cloud: {organization}')
+    plt.show()
+
+#*****************************SENTIMENT ANALYSIS*************************
+#import pandas as pd
+#import nltk
+from nltk.sentiment import SentimentIntensityAnalyzer
+#import matplotlib.pyplot as plt
+
+nltk.download('vader_lexicon')
+
+#Sentiment analysis :
+sid = SentimentIntensityAnalyzer()
+dfsenate['Sentiment'] = dfsenate['comment'].apply(lambda x: sid.polarity_scores(x)['compound'])
+
+#Visualize-bar plot:
+plt.figure(figsize=(10, 6))
+dfsenate['Sentiment'].hist(bins=20, color='skyblue')
+plt.title('Sentiment Distribution')
+plt.xlabel('Sentiment Score')
+plt.ylabel('Frequency')
+plt.show()
+
+#************BOXPLOT-GROUP OF INTEREST************
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+sns.set_style('white')
+plt.figure(figsize=(12, 7))
+sns.boxplot(x='Sentiment', y='Organization', data=dfsenate, color='yellow', 
+            width=0.6, showmeans=True, showfliers=True)
+
+# Customize the axis 
+def add_cosmetics(title='Sentiment Analysis Distribution by Group of Interest',
+                  xlabel='Sentiment'):
+    plt.title(title, fontsize=28)
+    plt.xlabel(xlabel, fontsize=20)
+    plt.xticks(fontsize=15)
+    plt.yticks(fontsize=15)
+    sns.despine()
+
+def customize_labels(label):
+    if "OpenAI" in label:
+        return label + "-Sam Altman"
+    elif "IBM" in label:
+        return label + "-Christina Montgomery"
+    elif "Academia" in label:
+        return label + "-Gary Marcus"
+    else:
+        return label
+
+# Apply customized labels to y-axis
+yticks = plt.yticks()[1]
+plt.yticks(ticks=plt.yticks()[0], labels=[customize_labels(label.get_text()) 
+                                          for label in yticks])
+
+add_cosmetics()
+plt.show()
+#*************************BOXPLOT-CONGRESS*********************
+
+# Filter the dataframe by  "Congress"
+df_congress = dfsenate[dfsenate['Organization'] == 'Congress']
+
+# Get the comment count
+class_comments = Summary_Name.set_index('name')['comment_count']
+# Sort the classes by comment count in descending order
+sorted_classes = df_congress['name'].unique()
+sorted_classes = sorted(sorted_classes, key=lambda x: class_comments.get(x, 0), reverse=True)
+
+sns.set_style('white')
+plt.figure(figsize=(12, 7))
+sns.boxplot(x='Sentiment', y='name', data=df_congress, color='lightyellow', width=0.6, showmeans=True, showfliers=True, order=sorted_classes)
+
+# Add the comment count to each class label
+class_labels = [f"{name} ({class_comments.get(name, 0)})" for name in sorted_classes]
+
+# customize the axes.
+def add_cosmetics(title='Sentiment Analysis Distribution by Members of Congress',
+                  xlabel='Sentiment', ylabel='Name'):
+    plt.title(title, fontsize=28)
+    plt.xlabel(xlabel, fontsize=20)
+    plt.ylabel(ylabel, fontsize=20)
+    plt.xticks(fontsize=15)
+    plt.yticks(ticks=plt.yticks()[0], labels=class_labels, fontsize=15)
+    sns.despine()
+
+add_cosmetics()
+plt.show()
+#****************Calculate the moving average**********************
+
+window_size = 10  # Adjust the window size as desired
+dfsenate['Moving_Average'] = dfsenate['Sentiment'].rolling(window=window_size).mean()
+
+# Create the line plot
+plt.figure(figsize=(12, 6))
+plt.plot(dfsenate.index, dfsenate['Sentiment'], color='blue', alpha=0.5, label='Sentiment Score')
+plt.plot(dfsenate.index, dfsenate['Moving_Average'], color='red', linewidth=2, label=f'{window_size}-Point Moving Average')
+plt.xlabel('Statement Number', fontsize=12)
+plt.ylabel('Sentiment Score', fontsize=12)
+plt.title('Sentiment Score Evolution during the Hearing on Oversight of AI:', fontsize=16)
+plt.legend(fontsize=12)
+
+# Customize the grid and background
+plt.grid(color='lightgray', linestyle='--', linewidth=0.5)
+plt.axhline(0, color='black', linewidth=0.5, alpha=0.5)
+plt.fill_between(dfsenate.index, dfsenate['Sentiment'], 0, where=dfsenate['Sentiment'] > 0, alpha=0.2, color='green')
+plt.fill_between(dfsenate.index, dfsenate['Sentiment'], 0, where=dfsenate['Sentiment'] < 0, alpha=0.2, color='red')
+plt.text(dfsenate.index[-1], dfsenate['Sentiment'].iloc[-1], f'{dfsenate["Sentiment"].iloc[-1]:.2f}', ha='right', va='bottom', fontsize=12)
+plt.text(dfsenate.index[-1], dfsenate['Moving_Average'].iloc[-1], f'{dfsenate["Moving_Average"].iloc[-1]:.2f}', ha='right', va='top', fontsize=12)
+
+plt.tight_layout()
+plt.show()
+
+#***********moving average for each organization********************
+
+import seaborn as sns
+import matplotlib.pyplot as plt
+import numpy as np
+from scipy.interpolate import make_interp_spline
+
+
+window_size = 10  
+organizations = dfsenate['Organization'].unique()
+
+# Create the line plot
+color_palette = sns.color_palette('Set2', len(organizations))
+plt.figure(figsize=(12, 6))
+for i, org in enumerate(organizations):
+    df_org = dfsenate[dfsenate['Organization'] == org]
+    
+    # Handle missing values by filling with 0
+    df_org['Sentiment'].fillna(0, inplace=True)
+    
+    # Calculate the moving average
+    df_org['Moving_Average'] = df_org['Sentiment'].rolling(window=window_size, min_periods=1).mean()
+    
+    # Apply cubic spline interpolation
+    x = np.linspace(df_org.index.min(), df_org.index.max(), 500)
+    spl = make_interp_spline(df_org.index, df_org['Moving_Average'], k=3)
+    y = spl(x)
+    
+    plt.plot(x, y, linewidth=2, label=f'{org} {window_size}-Point Moving Average', color=color_palette[i])
+
+plt.xlabel('Statement Number', fontsize=12)
+plt.ylabel('Sentiment Score', fontsize=12)
+plt.title('Sentiment Score Evolution during the Hearing on Oversight of AI', fontsize=16)
+plt.legend(fontsize=12)
+
+# Customization
+plt.grid(color='lightgray', linestyle='--', linewidth=0.5)
+plt.axhline(0, color='black', linewidth=0.5, alpha=0.5)
+
+for org in organizations:
+    df_org = dfsenate[dfsenate['Organization'] == org]
+    plt.text(df_org.index[-1], df_org['Moving_Average'].iloc[-1], f'{df_org["Moving_Average"].iloc[-1]:.2f}', ha='right', va='top', fontsize=12, color='black')
+
+plt.tight_layout()
+plt.show()
